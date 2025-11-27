@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Triangolazione GPS - Cerchi</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0}
+    .wrap{padding:18px;max-width:1100px;margin:0 auto}
+    h1{font-size:20px;margin:0 0 14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+    label{font-weight:600;min-width:140px}
+    input[type=text]{padding:8px;border:1px solid #ccc;border-radius:6px;width:360px}
+    input[type=number]{padding:8px;border:1px solid #ccc;border-radius:6px;width:110px}
+    button{padding:8px 10px;border-radius:6px;border:1px solid #2b6cb0;background:#3182ce;color:#fff;cursor:pointer}
+    button.ghost{background:#eee;color:#222;border-color:#bbb}
+    .small{padding:6px 8px;font-size:14px}
+    #results{margin:14px 0;padding:10px;border:1px solid #e6e6e6;border-radius:8px;background:#fafafa}
+    .res-field{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+    #map{height:520px;border-radius:8px;margin-top:10px}
+    .note{font-size:13px;color:#555}
+    .inline{display:inline-flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Triangolazione GPS (2 cerchi + punto di prossimità)</h1>
+
+    <!-- Input fields: A, B, C + distances for A and B (km, default 1.05) -->
+    <div class="row">
+      <label for="coordA">Punto A (lat,lon)</label>
+      <input id="coordA" type="text" placeholder="es. 44.603865451661655, 11.383895089798328" />
+      <button class="small ghost" id="gpsA">📍 Usa posizione</button>
+      <label style="min-width:80px">Distanza A (km)</label>
+      <input id="distA" type="number" step="0.001" value="1.05" />
+    </div>
+
+    <div class="row">
+      <label for="coordB">Punto B (lat,lon)</label>
+      <input id="coordB" type="text" placeholder="es. 44.603865451661655, 11.383895089798328" />
+      <button class="small ghost" id="gpsB">📍 Usa posizione</button>
+      <label style="min-width:80px">Distanza B (km)</label>
+      <input id="distB" type="number" step="0.001" value="1.05" />
+    </div>
+
+    <div class="row">
+      <label for="coordC">Punto C (prossimità)</label>
+      <input id="coordC" type="text" placeholder="es. 44.603865451661655, 11.383895089798328" />
+      <button class="small ghost" id="gpsC">📍 Usa posizione</button>
+      <div class="note">Doppio click su un campo incolla il testo della clipboard (se consentito dal browser).</div>
+    </div>
+
+    <div class="row">
+      <button id="compute">Calcola triangolazione</button>
+      <button id="clear" class="ghost">Pulisci mappa e campi</button>
+      <div class="note">I primi due punti A e B sono i centri dei cerchi; le distanze sono espresse in <strong>km</strong> (default 1.05 km = 1050 m).</div>
+    </div>
+
+    <!-- Risultati prima della mappa -->
+    <div id="results">
+      <div class="res-field"><strong>Soluzione 1:</strong><input id="sol1" type="text" readonly style="width:420px" /></div>
+      <div class="res-field"><strong>Soluzione 2:</strong><input id="sol2" type="text" readonly style="width:420px" /></div>
+      <div class="res-field"><strong>Migliore (scelto da C):</strong><input id="best" type="text" readonly style="width:420px"/>
+        <button id="copyBest" class="small">Copia Migliore</button>
+      </div>
+      <div id="msg" style="color:#b31; font-weight:600"></div>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // --- Helper utilities ---
+    function parseCoordField(str){
+      if(!str) return null;
+      const parts = str.split(',').map(s=>s.trim());
+      if(parts.length<2) return null;
+      const lat = parseFloat(parts[0]);
+      const lon = parseFloat(parts[1]);
+      if(Number.isFinite(lat) && Number.isFinite(lon)) return [lat,lon];
+      return null;
+    }
+
+    // Equirectangular projection around a reference latitude -> meters
+    function toXY(lat,lon,refLat){
+      const R = 6371000; // earth
+      const x = R * lon * Math.PI/180 * Math.cos(refLat * Math.PI/180);
+      const y = R * lat * Math.PI/180;
+      return [x,y];
+    }
+    function toLatLon(x,y,refLat){
+      const R = 6371000;
+      const lat = y * 180 / Math.PI / R;
+      const lon = x * 180 / Math.PI / R / Math.cos(refLat * Math.PI/180);
+      return [lat,lon];
+    }
+
+    // Distance (meters) between two lat/lon (haversine)
+    function haversine(a,b){
+      const R = 6371000;
+      const toRad = Math.PI/180;
+      const dLat = (b[0]-a[0])*toRad;
+      const dLon = (b[1]-a[1])*toRad;
+      const lat1 = a[0]*toRad; const lat2 = b[0]*toRad;
+      const sinDlat = Math.sin(dLat/2); const sinDlon = Math.sin(dLon/2);
+      const aa = sinDlat*sinDlat + Math.cos(lat1)*Math.cos(lat2)*sinDlon*sinDlon;
+      const c = 2*Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa));
+      return R*c;
+    }
+
+    // --- Map setup ---
+    const map = L.map('map').setView([44.6,11.38],13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+    let overlays = [];
+    function clearOverlays(){ overlays.forEach(o=>map.removeLayer(o)); overlays=[]; }
+
+    function addMarker(lat,lon,label,color){
+      const m = L.circleMarker([lat,lon],{radius:8,color:color,fillColor:color,fillOpacity:0.9}).addTo(map).bindPopup(label);
+      overlays.push(m);
+      return m;
+    }
+    function addCircle(lat,lon,radius,color,opts={}){
+      const c = L.circle([lat,lon],{radius:radius,color:color,fill:false,weight:2, ...opts}).addTo(map);
+      overlays.push(c);
+      return c;
+    }
+
+    // --- DOM references ---
+    const coordA = document.getElementById('coordA');
+    const coordB = document.getElementById('coordB');
+    const coordC = document.getElementById('coordC');
+    const distA = document.getElementById('distA');
+    const distB = document.getElementById('distB');
+    const sol1 = document.getElementById('sol1');
+    const sol2 = document.getElementById('sol2');
+    const best = document.getElementById('best');
+    const msg = document.getElementById('msg');
+
+    // --- Clipboard helpers ---
+    async function pasteIntoField(field){
+      try{
+        const text = await navigator.clipboard.readText();
+        field.value = text;
+      }catch(e){
+        console.warn('Clipboard read failed', e);
+      }
+    }
+    // Double-click behaviour: paste clipboard into field
+    [coordA,coordB,coordC].forEach(f=>{
+      f.addEventListener('dblclick', async (e)=>{
+        await pasteIntoField(f);
+      });
+    });
+
+    // GPS buttons
+    document.getElementById('gpsA').addEventListener('click', ()=>getCurrentTo(coordA));
+    document.getElementById('gpsB').addEventListener('click', ()=>getCurrentTo(coordB));
+    document.getElementById('gpsC').addEventListener('click', ()=>getCurrentTo(coordC));
+
+    function getCurrentTo(field){
+      if(!navigator.geolocation) return alert('Geolocalizzazione non supportata dal browser');
+      navigator.geolocation.getCurrentPosition(pos=>{
+        field.value = pos.coords.latitude + ', ' + pos.coords.longitude;
+      }, err=>{
+        alert('Impossibile ottenere posizione: '+err.message);
+      }, {enableHighAccuracy:true, timeout:10000});
+    }
+
+    // Clear button
+    document.getElementById('clear').addEventListener('click', ()=>{
+      coordA.value = '';
+      coordB.value = '';
+      coordC.value = '';
+      distA.value = '1.05';
+      distB.value = '1.05';
+      sol1.value = '';
+      sol2.value = '';
+      best.value = '';
+      msg.textContent = '';
+      clearOverlays();
+    });
+
+    // Compute intersections of two circles using planar approx
+    function circleIntersections(lat1,lon1,r1,lat2,lon2,r2){
+      // r1,r2 in meters
+      const refLat = (lat1+lat2)/2;
+      const Axy = toXY(lat1,lon1,refLat);
+      const Bxy = toXY(lat2,lon2,refLat);
+      const dx = Bxy[0]-Axy[0];
+      const dy = Bxy[1]-Axy[1];
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if(d < 1e-6) return [];
+      if(d > r1 + r2 + 1e-6) return []; // no intersection
+      if(d < Math.abs(r1 - r2) - 1e-6) return []; // one inside other
+
+      // a = distance from A to point P2 along the line between centers
+      const a = (r1*r1 - r2*r2 + d*d) / (2*d);
+      const h2 = Math.max(0, r1*r1 - a*a);
+      const xm = Axy[0] + dx * (a/d);
+      const ym = Axy[1] + dy * (a/d);
+      const rx = -dy * (Math.sqrt(h2)/d);
+      const ry = dx * (Math.sqrt(h2)/d);
+
+      const p1 = toLatLon(xm + rx, ym + ry, refLat);
+      const p2 = toLatLon(xm - rx, ym - ry, refLat);
+      return [p1,p2];
+    }
+
+    // Main compute button
+    document.getElementById('compute').addEventListener('click', async ()=>{
+      msg.textContent = '';
+      clearOverlays();
+      sol1.value = '';
+      sol2.value = '';
+      best.value = '';
+
+      const A = parseCoordField(coordA.value);
+      const B = parseCoordField(coordB.value);
+      const C = parseCoordField(coordC.value);
+      if(!A || !B){ alert('Inserisci coordinate valide per A e B (lat, lon)'); return; }
+      const rA_km = parseFloat(distA.value);
+      const rB_km = parseFloat(distB.value);
+      if(!Number.isFinite(rA_km) || !Number.isFinite(rB_km)){ alert('Inserisci distanze valide per A e B'); return; }
+      const rA = Math.max(0,rA_km) * 1000; // m
+      const rB = Math.max(0,rB_km) * 1000;
+
+      // Show centers and circles
+      addMarker(A[0],A[1],'A'); addMarker(B[0],B[1],'B');
+      if(C) addMarker(C[0],C[1],'C (prossimità)','orange');
+      addCircle(A[0],A[1],rA,'green'); addCircle(B[0],B[1],rB,'green');
+
+      // compute intersections
+      const sols = circleIntersections(A[0],A[1],rA,A[0]?B[0]:0,B[1],rB);
+      if(sols.length==0){ msg.textContent = 'I cerchi non si intersecano (nessuna soluzione).'; map.fitBounds([[A[0],A[1]],[B[0],B[1]]]); return; }
+
+      // place solution markers
+      addMarker(sols[0][0],sols[0][1],'Soluzione 1','red');
+      addMarker(sols[1][0],sols[1][1],'Soluzione 2','red');
+
+      sol1.value = sols[0][0].toFixed(12) + ', ' + sols[0][1].toFixed(12);
+      sol2.value = sols[1][0].toFixed(12) + ', ' + sols[1][1].toFixed(12);
+
+      // choose best based on proximity to C if available, otherwise pick based on e.g. lat diff to midpoint
+      let chosen = sols[0];
+      if(C){
+        const d0 = haversine(C,sols[0]);
+        const d1 = haversine(C,sols[1]);
+        chosen = d0 <= d1 ? sols[0] : sols[1];
+      }else{
+        // choose closer to midpoint of A-B
+        const mid = [(A[0]+B[0])/2,(A[1]+B[1])/2];
+        const d0 = haversine(mid,sols[0]);
+        const d1 = haversine(mid,sols[1]);
+        chosen = d0 <= d1 ? sols[0] : sols[1];
+      }
+
+      addMarker(chosen[0],chosen[1],'Soluzione scelta (best)','blue');
+      best.value = chosen[0].toFixed(12) + ', ' + chosen[1].toFixed(12);
+
+      // copy best to clipboard automatically (and also provide button)
+      try{
+        await navigator.clipboard.writeText(best.value);
+        msg.textContent = 'Soluzione migliore copiata in clipboard.';
+      }catch(e){
+        msg.textContent = 'Calcolo completato — permesso clipboard non concesso, premi "Copia Migliore".';
+      }
+
+      // fit map
+      const latlngs = [A,B].concat(sols).filter(Boolean);
+      const bounds = latlngs.map(p=>[p[0],p[1]]);
+      map.fitBounds(bounds,{padding:[60,60]});
+    });
+
+    // copy best button
+    document.getElementById('copyBest').addEventListener('click', async ()=>{
+      if(!best.value) return alert('Nessuna soluzione da copiare');
+      try{ await navigator.clipboard.writeText(best.value); alert('Copia effettuata'); }catch(e){ alert('Copia fallita: '+e); }
+    });
+
+    // Make result fields dblclick copy content to clipboard (Ctrl+C semantics)
+    [sol1,sol2,best].forEach(f=>{
+      f.addEventListener('dblclick', async ()=>{
+        if(!f.value) return;
+        try{ await navigator.clipboard.writeText(f.value); alert('Testo copiato negli appunti'); }
+        catch(e){ alert('Copia fallita'); }
+      });
+    });
+
+  </script>
+</body>
+</html>
