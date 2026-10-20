@@ -12,14 +12,18 @@
     .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
     button{padding:9px 12px;border-radius:6px;border:1px solid #2b6cb0;background:#3182ce;color:white;cursor:pointer;font-size:14px}
     button.ghost{background:#eee;color:#222;border-color:#bbb}.back{display:inline-block;margin-bottom:14px;color:#245b91}
-    .points{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
-    .point{border:1px solid #ddd;border-left:5px solid var(--c);border-radius:8px;padding:12px;background:#fafafa}
-    .point h2{font-size:16px;margin:0 0 9px}.fields{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    label{font-size:13px;font-weight:600;display:block;margin-bottom:4px}.coord{flex:1 1 210px;min-width:180px}
-    .radius{flex:0 0 100px}input{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:14px}
-    .gps{margin-top:8px;padding:6px 9px;font-size:13px}.note{font-size:13px;color:#555;align-self:center}
+    .points{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:7px}
+    .point{border:1px solid #ddd;border-left:4px solid var(--c);border-radius:7px;padding:8px;background:#fafafa}
+    .point-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px}
+    .point h2{font-size:14px;margin:0;white-space:nowrap}.fields{display:block}
+    label{font-size:11px;font-weight:600;display:block;margin:0 0 2px}.coord{width:100%;min-width:0}
+    .coord label{text-align:right;font-weight:500;color:#555}
+    .bottom-row{display:flex;gap:8px;align-items:end;margin-top:5px}
+    .radius{flex:0 0 88px}.gps-wrap{flex:1;min-width:0}
+    input{box-sizing:border-box;width:100%;height:29px;padding:4px 7px;border:1px solid #ccc;border-radius:5px;font-size:13px}
+    .gps{margin:0;width:100%;height:29px;padding:4px 7px;font-size:12px;white-space:nowrap}.note{font-size:13px;color:#555;align-self:center}
     #status{min-height:20px;margin:8px 0;font-size:14px;color:#333}#map{height:540px;border-radius:8px;margin-top:10px;border:1px solid #ddd}
-    @media(max-width:520px){.wrap{padding:12px}.point{padding:10px}#map{height:430px}}
+    @media(max-width:520px){.wrap{padding:10px}.point{padding:8px}.points{grid-template-columns:1fr}#map{height:430px}}
   </style>
 </head>
 <body>
@@ -42,12 +46,14 @@
   const colors = ['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#c026d3','#4d7c0f','#b45309','#475569'];
   const pointsEl = document.getElementById('points');
   pointsEl.innerHTML = letters.map((letter,i)=>`<section class="point" style="--c:${colors[i]}">
-    <h2>Posizione ${letter}</h2>
+    <div class="point-head"><h2>Posizione ${letter}</h2></div>
     <div class="fields">
       <div class="coord"><label for="coord${letter}">Coordinate (lat, lon)</label><input id="coord${letter}" type="text" placeholder="es. 44.603865, 11.383895" /></div>
-      <div class="radius"><label for="radius${letter}">Raggio (km)</label><input id="radius${letter}" type="number" min="0" step="0.001" value="1.50" /></div>
+      <div class="bottom-row">
+        <div class="radius"><label for="radius${letter}">Raggio (km)</label><input id="radius${letter}" type="number" min="0" step="0.001" value="1.50" /></div>
+        <div class="gps-wrap"><button type="button" class="ghost gps" data-letter="${letter}">📍 Usa posizione GPS</button></div>
+      </div>
     </div>
-    <button type="button" class="ghost gps" data-letter="${letter}">📍 Usa posizione GPS</button>
   </section>`).join('');
 
   function parseCoord(value){
