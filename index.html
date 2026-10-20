@@ -11,8 +11,8 @@
     h1{font-size:20px;margin:0 0 14px}
     .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
     label{font-weight:600;min-width:140px}
-    input[type=text]{padding:8px;border:1px solid #ccc;border-radius:6px;width:360px}
-    input[type=number]{padding:8px;border:1px solid #ccc;border-radius:6px;width:110px}
+    input[type=text]{padding:8px;border:1px solid #ccc;border-radius:6px;width:220px}
+    input[type=number]{padding:8px;border:1px solid #ccc;border-radius:6px;width:90px}
     button{padding:8px 10px;border-radius:6px;border:1px solid #2b6cb0;background:#3182ce;color:#fff;cursor:pointer}
     button.ghost{background:#eee;color:#222;border-color:#bbb}
     .small{padding:6px 8px;font-size:14px}
@@ -21,19 +21,22 @@
     #map{height:520px;border-radius:8px;margin-top:10px}
     .note{font-size:13px;color:#555}
     .inline{display:inline-flex;gap:8px;align-items:center}
+    .solution-input{ width:200px; font-family:monospace; }
+    .sol-green{ background:#dcfce7; /* verde chiaro */ border:1px solid #16a34a; color:#065f46; font-weight:600; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Triangolazione GPS (2 cerchi + punto di prossimità)</h1>
+    <div class="row"><a href="cerchi.html" style="text-decoration:none"><button type="button" class="ghost">Apri pagina: Traccia fino a 10 cerchi</button></a></div>
 
-    <!-- Input fields: A, B, C + distances for A and B (km, default 1.05) -->
+    <!-- Input fields: A, B, C + distances for A and B (km, default 1.50) -->
     <div class="row">
       <label for="coordA">Punto A (lat,lon)</label>
       <input id="coordA" type="text" placeholder="es. 44.603865451661655, 11.383895089798328" />
       <button class="small ghost" id="gpsA">📍 Usa posizione</button>
       <label style="min-width:80px">Distanza A (km)</label>
-      <input id="distA" type="number" step="0.001" value="1.05" />
+      <input id="distA" type="number" step="0.001" value="1.50" />
     </div>
 
     <div class="row">
@@ -41,7 +44,7 @@
       <input id="coordB" type="text" placeholder="es. 44.603865451661655, 11.383895089798328" />
       <button class="small ghost" id="gpsB">📍 Usa posizione</button>
       <label style="min-width:80px">Distanza B (km)</label>
-      <input id="distB" type="number" step="0.001" value="1.05" />
+      <input id="distB" type="number" step="0.001" value="1.50" />
     </div>
 
     <div class="row">
@@ -54,14 +57,14 @@
     <div class="row">
       <button id="compute">Calcola triangolazione</button>
       <button id="clear" class="ghost">Pulisci mappa e campi</button>
-      <div class="note">I primi due punti A e B sono i centri dei cerchi; le distanze sono espresse in <strong>km</strong> (default 1.05 km = 1050 m).</div>
+      <div class="note">I primi due punti A e B sono i centri dei cerchi; le distanze sono espresse in <strong>km</strong> (default 1.50 km = 1500 m).</div>
     </div>
 
     <!-- Risultati prima della mappa -->
     <div id="results">
-      <div class="res-field"><strong>Soluzione 1:</strong><input id="sol1" type="text" readonly style="width:420px" /></div>
-      <div class="res-field"><strong>Soluzione 2:</strong><input id="sol2" type="text" readonly style="width:420px" /></div>
-      <div class="res-field"><strong>Migliore (scelto da C):</strong><input id="best" type="text" readonly style="width:420px"/>
+      <div class="res-field"><strong>Soluzione 1:</strong><input id="sol1" class="solution-input sol-green" type="text" readonly style="width:200px" /></div>
+      <div class="res-field"><strong>Soluzione 2:</strong><input id="sol2" type="text" readonly style="width:200px" /></div>
+      <div class="res-field"><strong>Migliore (scelto da C):</strong><input id="best" type="text" readonly style="width:200px"/>
         <button id="copyBest" class="small">Copia Migliore</button>
       </div>
       <div id="msg" style="color:#b31; font-weight:600"></div>
@@ -112,7 +115,7 @@
 
     // --- Map setup ---
     const map = L.map('map').setView([44.6,11.38],13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19, attribution:'Tiles &copy; Esri &mdash; Sources: Esri, DeLorme, HERE, USGS, Intermap, increment P Corp., NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), MapmyIndia, TomTom'}).addTo(map);
 
     let overlays = [];
     function clearOverlays(){ overlays.forEach(o=>map.removeLayer(o)); overlays=[]; }
@@ -126,6 +129,14 @@
       const c = L.circle([lat,lon],{radius:radius,color:color,fill:false,weight:2, ...opts}).addTo(map);
       overlays.push(c);
       return c;
+    }
+    function addCrossMarker(lat, lon, label){
+      const size = 8; const cross = L.layerGroup([L.polyline([ [lat - 0.00020, lon - 0.00020],
+      [lat + 0.00020, lon + 0.00020] ], {color:'#000', weight:2}), L.polyline([ [lat - 0.00020, lon + 0.00020],
+      [lat + 0.00020, lon - 0.00020] ], {color:'#000', weight:2}) ]).addTo(map);
+      cross.bindPopup(label);
+      overlays.push(cross);
+      return cross;
     }
 
     // --- DOM references ---
@@ -174,8 +185,8 @@
       coordA.value = '';
       coordB.value = '';
       coordC.value = '';
-      distA.value = '1.05';
-      distB.value = '1.05';
+      distA.value = '1.50';
+      distB.value = '1.50';
       sol1.value = '';
       sol2.value = '';
       best.value = '';
@@ -233,15 +244,15 @@
       addCircle(A[0],A[1],rA,'green'); addCircle(B[0],B[1],rB,'green');
 
       // compute intersections
-      const sols = circleIntersections(A[0],A[1],rA,A[0]?B[0]:0,B[1],rB);
+      const sols = circleIntersections(  A[0], A[1], rA, B[0], B[1], rB);
       if(sols.length==0){ msg.textContent = 'I cerchi non si intersecano (nessuna soluzione).'; map.fitBounds([[A[0],A[1]],[B[0],B[1]]]); return; }
 
       // place solution markers
-      addMarker(sols[0][0],sols[0][1],'Soluzione 1','red');
+      addMarker(sols[0][0],sols[0][1],'Soluzione 1','#16a34a');
       addMarker(sols[1][0],sols[1][1],'Soluzione 2','red');
 
-      sol1.value = sols[0][0].toFixed(12) + ', ' + sols[0][1].toFixed(12);
-      sol2.value = sols[1][0].toFixed(12) + ', ' + sols[1][1].toFixed(12);
+      sol1.value = sols[0][0].toFixed(6) + ', ' + sols[0][1].toFixed(6);
+      sol2.value = sols[1][0].toFixed(6) + ', ' + sols[1][1].toFixed(6);
 
       // choose best based on proximity to C if available, otherwise pick based on e.g. lat diff to midpoint
       let chosen = sols[0];
@@ -256,9 +267,9 @@
         const d1 = haversine(mid,sols[1]);
         chosen = d0 <= d1 ? sols[0] : sols[1];
       }
-
-      addMarker(chosen[0],chosen[1],'Soluzione scelta (best)','blue');
-      best.value = chosen[0].toFixed(12) + ', ' + chosen[1].toFixed(12);
+      addCrossMarker(chosen[0], chosen[1], 'Soluzione scelta (best)');
+      // addMarker(chosen[0],chosen[1],'Soluzione scelta (best)','blue');
+      best.value = chosen[0].toFixed(6) + ', ' + chosen[1].toFixed(6);
 
       // copy best to clipboard automatically (and also provide button)
       try{

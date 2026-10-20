@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Traccia cerchi GPS</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#222}
+    body{margin:0;background:#fff}.wrap{padding:18px;max-width:1150px;margin:0 auto}
+    h1{font-size:21px;margin:0 0 8px}.intro{color:#555;font-size:14px;margin:0 0 16px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+    button{padding:9px 12px;border-radius:6px;border:1px solid #2b6cb0;background:#3182ce;color:white;cursor:pointer;font-size:14px}
+    button.ghost{background:#eee;color:#222;border-color:#bbb}.back{display:inline-block;margin-bottom:14px;color:#245b91}
+    .points{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+    .point{border:1px solid #ddd;border-left:5px solid var(--c);border-radius:8px;padding:12px;background:#fafafa}
+    .point h2{font-size:16px;margin:0 0 9px}.fields{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    label{font-size:13px;font-weight:600;display:block;margin-bottom:4px}.coord{flex:1 1 210px;min-width:180px}
+    .radius{flex:0 0 100px}input{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:14px}
+    .gps{margin-top:8px;padding:6px 9px;font-size:13px}.note{font-size:13px;color:#555;align-self:center}
+    #status{min-height:20px;margin:8px 0;font-size:14px;color:#333}#map{height:540px;border-radius:8px;margin-top:10px;border:1px solid #ddd}
+    @media(max-width:520px){.wrap{padding:12px}.point{padding:10px}#map{height:430px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← Torna alla triangolazione</a>
+  <h1>Traccia cerchi GPS</h1>
+  <p class="intro">Inserisci le coordinate e il raggio di ogni posizione. Puoi utilizzare da 1 a 10 punti; il raggio è espresso in chilometri.</p>
+  <div id="points" class="points"></div>
+  <div class="toolbar">
+    <button id="trace">Traccia i cerchi</button>
+    <button id="clear" class="ghost">Pulisci campi e mappa</button>
+    <span class="note">Suggerimento: coordinate nel formato latitudine, longitudine.</span>
+  </div>
+  <div id="status" role="status"></div>
+  <div id="map"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const letters = ['A','B','C','D','E','F','G','H','I','J'];
+  const colors = ['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#c026d3','#4d7c0f','#b45309','#475569'];
+  const pointsEl = document.getElementById('points');
+  pointsEl.innerHTML = letters.map((letter,i)=>`<section class="point" style="--c:${colors[i]}">
+    <h2>Posizione ${letter}</h2>
+    <div class="fields">
+      <div class="coord"><label for="coord${letter}">Coordinate (lat, lon)</label><input id="coord${letter}" type="text" placeholder="es. 44.603865, 11.383895" /></div>
+      <div class="radius"><label for="radius${letter}">Raggio (km)</label><input id="radius${letter}" type="number" min="0" step="0.001" value="1.50" /></div>
+    </div>
+    <button type="button" class="ghost gps" data-letter="${letter}">📍 Usa posizione GPS</button>
+  </section>`).join('');
+
+  function parseCoord(value){
+    if(!value.trim()) return null;
+    const parts=value.split(',').map(s=>s.trim());
+    if(parts.length!==2) return null;
+    const lat=Number(parts[0]), lon=Number(parts[1]);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat < -90||lat > 90||lon < -180||lon > 180) return null;
+    return [lat,lon];
+  }
+  const map=L.map('map').setView([44.6,11.38],13);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri &mdash; Sources: Esri, DeLorme, HERE, USGS, Intermap, increment P Corp., NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), MapmyIndia, TomTom'}).addTo(map);
+  let overlays=[];
+  function clearOverlays(){overlays.forEach(layer=>map.removeLayer(layer));overlays=[];}
+
+  document.querySelectorAll('.gps').forEach(button=>button.addEventListener('click',()=>{
+    const field=document.getElementById('coord'+button.dataset.letter);
+    if(!navigator.geolocation){alert('La geolocalizzazione non è supportata da questo browser.');return;}
+    navigator.geolocation.getCurrentPosition(pos=>{
+      field.value=pos.coords.latitude+', '+pos.coords.longitude;
+    },err=>alert('Impossibile ottenere la posizione: '+err.message),{enableHighAccuracy:true,timeout:10000});
+  }));
+
+  document.getElementById('trace').addEventListener('click',()=>{
+    clearOverlays();
+    const valid=[]; const errors=[];
+    letters.forEach((letter,i)=>{
+      const raw=document.getElementById('coord'+letter).value;
+      if(!raw.trim()) return;
+      const coord=parseCoord(raw);
+      const radiusKm=Number(document.getElementById('radius'+letter).value);
+      if(!coord){errors.push(letter+': coordinate non valide');return;}
+      if(!Number.isFinite(radiusKm)||radiusKm<0){errors.push(letter+': raggio non valido');return;}
+      valid.push({letter,coord,radiusKm,color:colors[i]});
+    });
+    const status=document.getElementById('status');
+    if(errors.length){status.textContent=errors.join(' · ');}
+    else if(!valid.length){status.textContent='Inserisci almeno una posizione con coordinate valide.';return;}
+    else {status.textContent='Disegnati '+valid.length+' cerchi sulla mappa.';}
+    if(!valid.length)return;
+    const bounds=[];
+    valid.forEach(p=>{
+      const marker=L.circleMarker(p.coord,{radius:7,color:p.color,fillColor:p.color,fillOpacity:1}).addTo(map)
+        .bindPopup('<strong>Posizione '+p.letter+'</strong><br>Raggio: '+p.radiusKm.toFixed(3)+' km');
+      const circle=L.circle(p.coord,{radius:p.radiusKm*1000,color:p.color,fillColor:p.color,fillOpacity:0.08,weight:2})
+        .addTo(map).bindPopup('Cerchio '+p.letter+' — raggio '+p.radiusKm.toFixed(3)+' km');
+      overlays.push(marker,circle);
+      bounds.push(p.coord);
+      // Include the approximate circle edge in the view bounds.
+      const latDelta=(p.radiusKm*1000)/111320;
+      const lonDelta=(p.radiusKm*1000)/(111320*Math.max(0.01,Math.cos(p.coord[0]*Math.PI/180)));
+      bounds.push([p.coord[0]-latDelta,p.coord[1]-lonDelta],[p.coord[0]+latDelta,p.coord[1]+lonDelta]);
+    });
+    if(valid.length===1 && valid[0].radiusKm===0) map.setView(valid[0].coord,15);
+    else map.fitBounds(bounds,{padding:[30,30],maxZoom:16});
+  });
+
+  document.getElementById('clear').addEventListener('click',()=>{
+    letters.forEach(letter=>{
+      document.getElementById('coord'+letter).value='';
+      document.getElementById('radius'+letter).value='1.50';
+    });
+    clearOverlays();
+    document.getElementById('status').textContent='';
+    map.setView([44.6,11.38],13);
+  });
+</script>
+</body>
+</html>
